@@ -4,9 +4,9 @@ use cosmwasm_std::{
 };
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg,JunoPunksMsg, InstantiateMsg, QueryMsg, Trait};
+use crate::msg::{ExecuteMsg,JunoFarmingMsg, InstantiateMsg, QueryMsg, Trait};
 use crate::state::{
-    CONFIG,ADMININFO,State,METADATA, AdminInfo, self
+    CONFIG,ADMININFO,State,METADATA, AdminInfo, USERINFO
 };
 
 use cw721_base::{ExecuteMsg as Cw721BaseExecuteMsg, MintMsg};
@@ -27,10 +27,12 @@ pub fn instantiate(
          nft_address:"nft".to_string(),
          url : msg.url,
          price:msg.price,
-         image_url:msg.image_url
+         image_url:msg.image_url,
+         denom:msg.denom,
+         max_nft:msg.max_nft
     };
     CONFIG.save(deps.storage, &state)?;
-    let metadata:Vec<JunoPunksMsg> = vec![];
+    let metadata:Vec<JunoFarmingMsg> = vec![];
     METADATA.save(deps.storage,&metadata)?;
     Ok(Response::default())
 }
@@ -59,6 +61,7 @@ fn execute_mint(
 ) -> Result<Response, ContractError> {
     let  state = CONFIG.load(deps.storage)?;
 
+
     if state.count >= state.total_nft {
         return Err(ContractError::MintEnded {});
     }
@@ -67,10 +70,25 @@ fn execute_mint(
         return Err(ContractError::WrongNumber {  });
     }
 
+    let count = USERINFO.may_load(deps.storage,&info.sender.to_string())?;
+  
+    if count == None{
+        USERINFO.save(deps.storage,&info.sender.to_string(), &Uint128::new(1))?;
+    }
+
+    else {
+        let count = count.unwrap() + Uint128::new(1);
+        USERINFO.save(deps.storage,&info.sender.to_string(), &count)?;
+        if count < state.max_nft{
+            return Err(ContractError::MintExceeded {  })
+        }
+    }
+
+
     let amount= info
         .funds
         .iter()
-        .find(|c| c.denom == "ujuno".to_string())
+        .find(|c| c.denom == state.denom)
         .map(|c| Uint128::from(c.amount))
         .unwrap_or_else(Uint128::zero);
 
@@ -79,7 +97,7 @@ fn execute_mint(
     }
 
     let sender = info.sender.to_string();
-    let token_id = ["Sunny".to_string(),rand.to_string()].join(".");
+    let token_id = ["JunoFarming".to_string(),rand.to_string()].join(".");
 
 
     
@@ -95,7 +113,7 @@ fn execute_mint(
         messages.push(CosmosMsg::Bank(BankMsg::Send {
                 to_address: admin.address,
                 amount:vec![Coin{
-                    denom:"ujuno".to_string(),
+                    denom:state.denom.clone(),
                     amount:admin.amount
                 }]
         }));
@@ -110,18 +128,9 @@ fn execute_mint(
                 token_id: token_id.clone(),
                 owner: sender,
                 token_uri: Some([[state.url,rand.to_string()].join(""),"json".to_string()].join(".")),
-                extension:  JunoPunksMsg{
-                    name:Some("2".to_string()),
-                    description:Some("desc".to_string()),
-                    image:Some("image".to_string()),
-                    dna:Some("dna".to_string()),
-                    edition:Some(1),    
-                    date:Some(123),
-                    compiler:Some("compiler".to_string()),
-                    attributes:vec![Trait{
-                        trait_type:Some("123".to_string()),
-                        value:Some("clause".to_string())
-                    }]}
+                extension:  JunoFarmingMsg{
+                    image:Some([[state.image_url,rand.to_string()].join(""),"png".to_string()].join("."))
+                }
             }))?,
             funds: vec![],
         }))
@@ -231,13 +240,13 @@ pub fn query_user_info(deps:Deps) -> StdResult<Vec<AdminInfo>>{
    Ok(admin)
 }
 
-pub fn query_info(deps:Deps,_address:String) -> StdResult<Uint128>{
-    let state = CONFIG.load(deps.storage)?;
-   Ok(state.total_nft)
+pub fn query_info(deps:Deps,address:String) -> StdResult<Uint128>{
+   let user_info = USERINFO.load(deps.storage, &address)?;
+   Ok(user_info)
 }
 
 
-pub fn query_metadata(deps:Deps) -> StdResult<Vec<JunoPunksMsg>>{
+pub fn query_metadata(deps:Deps) -> StdResult<Vec<JunoFarmingMsg>>{
     let metadata = METADATA.load(deps.storage)?;
     Ok(metadata)
 }
@@ -259,7 +268,9 @@ mod tests {
             check_mint:vec![true,true,true,true,true],
             url :"url".to_string(),
             image_url:"imag_url".to_string(),
-            price:Uint128::new(10)
+            price:Uint128::new(10),
+            denom : "ujunox".to_string(),
+            max_nft:Uint128::new(20)
         };
         let info = mock_info("creator", &[]);
         let res = instantiate(deps.as_mut(), mock_env(), info, instantiate_msg).unwrap();
@@ -291,13 +302,9 @@ mod tests {
        } ]};
 
        execute(deps.as_mut(), mock_env(), info, message).unwrap();
-       let value =  query_info(deps.as_ref(),"1".to_string()).unwrap();
-
-       assert_eq!(value,Uint128::new(10));
-
         
        let info = mock_info("creator", &[Coin{
-        denom:"ujuno".to_string(),
+        denom:"ujunox".to_string(),
         amount:Uint128::new(12)
        }]);
        let message = ExecuteMsg::Mint { rand: Uint128::new(1) };
@@ -307,7 +314,7 @@ mod tests {
        assert_eq!(res.messages[1].msg,CosmosMsg::Bank(BankMsg::Send {
                 to_address: "admin1".to_string(),
                 amount:vec![Coin{
-                    denom:"ujuno".to_string(),
+                    denom:"ujunox".to_string(),
                     amount:Uint128::new(9)
                 }]
         }));
@@ -315,10 +322,13 @@ mod tests {
        assert_eq!(res.messages[2].msg,CosmosMsg::Bank(BankMsg::Send {
                 to_address: "admin2".to_string(),
                 amount:vec![Coin{
-                    denom:"ujuno".to_string(),
+                    denom:"ujunox".to_string(),
                     amount:Uint128::new(3)
                 }]
-        }))
+        }));
+
+        let user_info = query_info(deps.as_ref(), "creator".to_string()).unwrap();
+        assert_eq!(user_info,Uint128::new(1))
     }
 
 }

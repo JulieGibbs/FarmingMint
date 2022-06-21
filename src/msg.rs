@@ -11,7 +11,9 @@ pub struct InstantiateMsg {
    pub check_mint:Vec<bool>,
    pub url:String,
    pub image_url:String,
-   pub price:Uint128
+   pub price:Uint128,
+   pub denom:String,
+   pub max_nft:Uint128
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -34,15 +36,8 @@ pub enum QueryMsg {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct JunoPunksMsg {
-    pub name: Option<String>,
-    pub description: Option<String>,    
+pub struct JunoFarmingMsg {   
     pub image: Option<String>,
-    pub dna: Option<String>,
-    pub edition:Option<u64>,
-    pub date:Option<u64>,
-    pub attributes:Vec<Trait>,
-    pub compiler : Option<String>
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
